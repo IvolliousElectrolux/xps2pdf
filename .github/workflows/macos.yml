@@ -1,0 +1,55 @@
+name: macOS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            asset: macos-arm64
+          - target: x86_64-apple-darwin
+            asset: macos-x64
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-${{ matrix.asset }}
+          cache-all-crates: true
+          cache-provider: github
+
+      - name: Test
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo test --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build -r --target ${{ matrix.target }}
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          VER=$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          STAGE="xps2pdf-${VER}-${{ matrix.asset }}"
+          mkdir -p "$STAGE"
+          cp "target/${{ matrix.target }}/release/xps2pdf" "$STAGE/"
+          chmod +x "$STAGE/xps2pdf"
+          ditto -c -k --sequesterRsrc --keepParent "$STAGE" "${STAGE}.zip"
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+          ls -lh "${STAGE}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STAGE }}
+          path: ${{ env.STAGE }}.zip
+          if-no-files-found: error
