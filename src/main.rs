@@ -56,7 +56,7 @@ fn run_cli(args: &[String]) -> Result<(), error::Error> {
     }
     let files = convert::collect_inputs(&inputs);
     if files.is_empty() {
-        return Err(error::Error::msg("没有 XPS / OXPS 文件"));
+        return Err(error::Error::msg("没有 XPS / OXPS / PDF 文件"));
     }
     let stop = std::sync::atomic::AtomicBool::new(false);
     if files.len() == 1 {
@@ -69,7 +69,7 @@ fn run_cli(args: &[String]) -> Result<(), error::Error> {
                 convert::dest_pdf(&p, src, &mut Vec::new())
             }
         } else {
-            src.with_extension("pdf")
+            convert::beside_pdf(src)
         };
         let report = convert::convert_file(src, &dst, &stop, |page, total| {
             eprintln!("{}  {page}/{total}", src.display());

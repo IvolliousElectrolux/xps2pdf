@@ -130,7 +130,11 @@ pub fn start(jobs: Vec<Job>) -> (Handle, async_channel::Receiver<Event>) {
 
 pub fn is_xps_path(path: &Path) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => ext.eq_ignore_ascii_case("xps") || ext.eq_ignore_ascii_case("oxps"),
+        Some(ext) => {
+            ext.eq_ignore_ascii_case("xps")
+                || ext.eq_ignore_ascii_case("oxps")
+                || ext.eq_ignore_ascii_case("pdf")
+        }
         None => false,
     }
 }
@@ -173,12 +177,32 @@ pub fn dest_pdf(out_dir: &Path, src: &Path, used: &mut Vec<String>) -> PathBuf {
     let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
     let mut name = format!("{stem}.pdf");
     let mut n = 2u32;
-    while used.iter().any(|u| u.eq_ignore_ascii_case(&name)) {
+    while used.iter().any(|u| u.eq_ignore_ascii_case(&name)) || same_path(&out_dir.join(&name), src) {
         name = format!("{stem} ({n}).pdf");
         n += 1;
     }
     used.push(name.clone());
     out_dir.join(name)
+}
+
+/// 默认写到源文件旁边. 源文件本身已经叫 `.pdf` 时改名, 避免盖掉原件.
+pub fn beside_pdf(src: &Path) -> PathBuf {
+    let beside = src.with_extension("pdf");
+    let dir = src.parent().unwrap_or_else(|| Path::new("."));
+    if same_path(&beside, src) {
+        dest_pdf(dir, src, &mut Vec::new())
+    } else {
+        beside
+    }
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    let fold = |p: &Path| {
+        p.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_ascii_lowercase())
+            .collect::<Vec<_>>()
+    };
+    fold(a) == fold(b)
 }
 
 #[cfg(test)]
@@ -376,6 +400,18 @@ mod tests {
         assert!(text.contains("/ActualText (Hi)"), "{text}");
         assert!(text.contains(" l\n") || text.contains(" c\n"), "{text}");
         assert!(text.contains("\nf\n") || text.ends_with("\nf"), "{text}");
+    }
+
+    #[test]
+    fn pdf_extension_is_accepted_and_not_overwritten() {
+        assert!(is_xps_path(Path::new("score.PDF")));
+        assert!(!is_xps_path(Path::new("notes.txt")));
+        let src = PathBuf::from("score.pdf");
+        let dest = beside_pdf(&src);
+        assert_eq!(dest, PathBuf::from("score (2).pdf"));
+        let mut used = Vec::new();
+        let in_dir = dest_pdf(Path::new("out"), &src, &mut used);
+        assert_eq!(in_dir, PathBuf::from("out").join("score.pdf"));
     }
 
     fn inflate_first_stream(pdf: &[u8]) -> String {

@@ -54,7 +54,7 @@ impl XpsApp {
             items: Vec::new(),
             next_id: 1,
             out_dir,
-            status: "拖入或打开 XPS / OXPS. Windows 和 macOS 用同一套转换, 不依赖系统组件.".into(),
+            status: "拖入或打开 XPS / OXPS / PDF. Windows 和 macOS 用同一套转换, 不依赖系统组件.".into(),
             running: false,
             engine: None,
             btn_press: None,
@@ -144,7 +144,7 @@ impl XpsApp {
             || {
                 rfd::FileDialog::new()
                     .set_title("打开 XPS")
-                    .add_filter("XPS", &["xps", "oxps"])
+                    .add_filter("XPS", &["xps", "oxps", "pdf"])
                     .pick_files()
             },
             |this, files, cx| {
@@ -176,7 +176,7 @@ impl XpsApp {
     fn add_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         let found = convert::collect_inputs(&paths);
         if found.is_empty() {
-            self.status = "没有 XPS / OXPS.".into();
+            self.status = "没有 XPS / OXPS / PDF.".into();
             cx.notify();
             return;
         }
@@ -327,7 +327,7 @@ impl XpsApp {
                     .p_4()
                     .text_sm()
                     .text_color(rgb(0x64748b))
-                    .child("还没有文件. 打开或拖入 .xps / .oxps, 也可以拖入文件夹."),
+                    .child("还没有文件. 打开或拖入 .xps / .oxps / .pdf, 也可以拖入文件夹."),
             );
         }
         for item in &self.items {
