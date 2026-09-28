@@ -241,6 +241,81 @@ mod tests {
     }
 
     #[test]
+    fn undeclared_prefix_still_converts() {
+        let bytes = xps(&[
+            (
+                "_rels/.rels",
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.microsoft.com/xps/2005/06/fixedrepresentation" Target="/FixedDocumentSequence.fdseq"/>
+</Relationships>"#,
+            ),
+            (
+                "FixedDocumentSequence.fdseq",
+                r#"<FixedDocumentSequence xmlns="http://schemas.microsoft.com/xps/2005/06">
+  <DocumentReference Source="Documents/1/FixedDocument.fdoc"/>
+</FixedDocumentSequence>"#,
+            ),
+            (
+                "Documents/1/FixedDocument.fdoc",
+                r#"<FixedDocument xmlns="http://schemas.microsoft.com/xps/2005/06">
+  <PageContent Source="Pages/1.fpage"/>
+</FixedDocument>"#,
+            ),
+            (
+                "Documents/1/Pages/1.fpage",
+                r##"<FixedPage xmlns="http://schemas.microsoft.com/xps/2005/06" Width="96" Height="96">
+  <Path Fill="#FF000000" trn:smooth="false" Data="F1 M 10,10 L 80,10 L 80,80 L 10,80 Z"/>
+</FixedPage>"##,
+            ),
+        ]);
+        let stop = AtomicBool::new(false);
+        let (pdf, report) = convert_reader(Cursor::new(bytes), &stop, &mut |_, _| {}).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        assert_eq!(report.pages, 1);
+        assert!(pdf.starts_with(b"%PDF"));
+    }
+
+    #[test]
+    fn render_transform_is_not_pivoted_on_bounds() {
+        let bytes = xps(&[
+            (
+                "_rels/.rels",
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.microsoft.com/xps/2005/06/fixedrepresentation" Target="/FixedDocumentSequence.fdseq"/>
+</Relationships>"#,
+            ),
+            (
+                "FixedDocumentSequence.fdseq",
+                r#"<FixedDocumentSequence xmlns="http://schemas.microsoft.com/xps/2005/06">
+  <DocumentReference Source="Documents/1/FixedDocument.fdoc"/>
+</FixedDocumentSequence>"#,
+            ),
+            (
+                "Documents/1/FixedDocument.fdoc",
+                r#"<FixedDocument xmlns="http://schemas.microsoft.com/xps/2005/06">
+  <PageContent Source="Pages/1.fpage"/>
+</FixedDocument>"#,
+            ),
+            (
+                "Documents/1/Pages/1.fpage",
+                r##"<FixedPage xmlns="http://schemas.microsoft.com/xps/2005/06" Width="96" Height="96">
+  <Canvas RenderTransform="2,0,0,2,10,20">
+    <Path Fill="#FF000000" Data="F1 M 5,5 L 6,5 L 6,6 L 5,6 Z"/>
+  </Canvas>
+</FixedPage>"##,
+            ),
+        ]);
+        let stop = AtomicBool::new(false);
+        let (pdf, report) = convert_reader(Cursor::new(bytes), &stop, &mut |_, _| {}).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let text = inflate_first_stream(&pdf);
+        assert!(text.contains("15 "), "{text}");
+        assert!(text.contains("49.5"), "{text}");
+    }
+
+    #[test]
     fn glyphs_use_embedded_font() {
         let candidates = [
             r"C:\Windows\Fonts\arial.ttf",

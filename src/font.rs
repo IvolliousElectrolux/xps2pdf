@@ -11,20 +11,28 @@ use crate::pathgeom::{PathCmd, PathGeom};
 const ITALIC_SHEAR: f32 = 0.36397023426;
 
 pub fn deobfuscate(part_name: &str, data: &[u8]) -> Vec<u8> {
-    let mut out = data.to_vec();
     let lower = part_name.to_ascii_lowercase();
     if !(lower.ends_with(".odttf") || lower.ends_with(".odttc")) {
-        return out;
+        return data.to_vec();
     }
-    let Some(key) = guid_key(part_name) else {
-        return out;
+    let Some(keys) = guid_keys(part_name) else {
+        return data.to_vec();
     };
-    apply_key(&mut out, &key);
-    if font_magic_ok(&out) {
-        return out;
+    let mut magic_only = None;
+    for key in keys {
+        let mut out = data.to_vec();
+        apply_key(&mut out, &key);
+        if !font_magic_ok(&out) {
+            continue;
+        }
+        if font_ok(&out) {
+            return out;
+        }
+        if magic_only.is_none() {
+            magic_only = Some(out);
+        }
     }
-    apply_key(&mut out, &key);
-    out
+    magic_only.unwrap_or_else(|| data.to_vec())
 }
 
 fn apply_key(data: &mut [u8], key: &[u8; 16]) {
@@ -42,7 +50,8 @@ fn font_magic_ok(data: &[u8]) -> bool {
     tag == [0, 1, 0, 0] || tag == b"OTTO" || tag == b"true" || tag == b"ttcf" || tag == [0, 0, 1, 0]
 }
 
-fn guid_key(part_name: &str) -> Option<[u8; 16]> {
+/// 规范要求 Data1/Data2/Data3 小端. PDFTron 的 SilverDox 则把十六进制 GUID 整段倒序.
+fn guid_keys(part_name: &str) -> Option<[[u8; 16]; 2]> {
     let stem = std::path::Path::new(part_name)
         .file_stem()
         .and_then(|s| s.to_str())?;
@@ -52,10 +61,15 @@ fn guid_key(part_name: &str) -> Option<[u8; 16]> {
         return None;
     }
     let b = |i: usize| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok();
-    Some([
+    let spec = [
         b(3)?, b(2)?, b(1)?, b(0)?, b(5)?, b(4)?, b(7)?, b(6)?, b(8)?, b(9)?, b(10)?, b(11)?,
         b(12)?, b(13)?, b(14)?, b(15)?,
-    ])
+    ];
+    let mut reversed = [0u8; 16];
+    for i in 0..16 {
+        reversed[i] = b(15 - i)?;
+    }
+    Some([spec, reversed])
 }
 
 #[derive(Clone, Debug)]
@@ -359,11 +373,23 @@ mod tests {
         raw[1] = 1;
         raw[2] = 0;
         raw[3] = 0;
-        let key = guid_key(name).unwrap();
+        let key = guid_keys(name).unwrap()[0];
         apply_key(&mut raw, &key);
         assert_ne!(&raw[..4], &[0, 1, 0, 0]);
         let back = deobfuscate(name, &raw);
         assert_eq!(&back[..4], &[0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn pdftron_reversed_guid_roundtrip() {
+        let name = "Fonts/0f510971-4a15-52b2-ea11-b20400000001.odttf";
+        let mut raw = b"OTTO".to_vec();
+        raw.extend_from_slice(&[0u8; 36]);
+        let key = guid_keys(name).unwrap()[1];
+        apply_key(&mut raw, &key);
+        assert_ne!(&raw[..4], b"OTTO");
+        let back = deobfuscate(name, &raw);
+        assert_eq!(&back[..4], b"OTTO");
     }
 
     #[test]

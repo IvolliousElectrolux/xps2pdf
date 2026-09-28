@@ -1,7 +1,8 @@
 //! 把 FixedPage 收成页面坐标下的显示列表.
 //!
 //! 画刷在元素自己的坐标系里计算, 再乘上 RenderTransform 和父级变换.
-//! `RenderTransformOrigin` 只有在变换不是单位矩阵时才绕包围盒旋转, 避免改动已经烘焙好的平移.
+//! 没写 `RenderTransformOrigin` 时矩阵按原样作用在坐标原点上, 和 MuPDF 一样.
+//! 写了这个属性才绕包围盒上的比例点变换.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Seek};
@@ -115,7 +116,7 @@ impl<R: Read + Seek> Session<R> {
         };
         let raw = loader.parse_element(root, part).unwrap_or(Raw {
             tf: Matrix::identity(),
-            origin: (0.0, 0.0),
+            origin: None,
             opacity: 1.0,
             clip: None,
             body: RawBody::Group(Vec::new()),
@@ -242,7 +243,8 @@ enum Spread {
 
 struct Raw {
     tf: Matrix,
-    origin: (f32, f32),
+    /// 只有写了 `RenderTransformOrigin` 才有值.
+    origin: Option<(f32, f32)>,
     opacity: f32,
     clip: Option<PathGeom>,
     body: RawBody,
@@ -1192,7 +1194,10 @@ fn glyph_bounds(g: &GlyphRaw) -> Option<Rect> {
 }
 
 fn effective_tf(raw: &Raw) -> Matrix {
-    raw.tf.around_origin(local_bounds(raw), raw.origin.0, raw.origin.1)
+    match raw.origin {
+        Some((fx, fy)) => raw.tf.around_origin(local_bounds(raw), fx, fy),
+        None => raw.tf,
+    }
 }
 
 fn local_bounds(raw: &Raw) -> Option<Rect> {
@@ -1392,9 +1397,9 @@ fn flag_attr(node: XmlNode<'_, '_>, name: &str) -> bool {
     matches!(attr(node, name).map(|s| s.trim()), Some("true" | "True" | "1"))
 }
 
-fn origin_attr(node: XmlNode<'_, '_>) -> (f32, f32) {
-    let n = parse_floats(attr(node, "RenderTransformOrigin").unwrap_or("0,0"));
-    (n.first().copied().unwrap_or(0.0), n.get(1).copied().unwrap_or(0.0))
+fn origin_attr(node: XmlNode<'_, '_>) -> Option<(f32, f32)> {
+    let n = parse_floats(attr(node, "RenderTransformOrigin")?);
+    Some((n.first().copied().unwrap_or(0.0), n.get(1).copied().unwrap_or(0.0)))
 }
 
 fn point_attr(node: XmlNode<'_, '_>, name: &str, default: Point) -> Point {
@@ -1504,3 +1509,4 @@ enum Nat {
     Num(u64),
     Text(String),
 }
+
